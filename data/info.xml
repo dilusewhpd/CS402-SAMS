@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<students subject="Computer Graphics and Visualization" code="CS402.3">
+
+  <student>
+    <no>1</no>
+    <id>10000409</id>
+    <title>Ms</title>
+    <name>M S Dilshanika Perera</name>
+  </student>
+
+  <student>
+    <no>2</no>
+    <id>10009301</id>
+    <title>Mr</title>
+    <name>C W M A Shehan Abeyrathne</name>
+  </student>
+
+  <student>
+    <no>3</no>
+    <id>10009302</id>
+    <title>Mr</title>
+    <name>B A K M Chithrananda</name>
+  </student>
+
+  <student>
+    <no>4</no>
+    <id>10009303</id>
+    <title>Ms</title>
+    <name>W Shashini Minosha De Silva</name>
+  </student>
+
+  <student>
+    <no>5</no>
+    <id>10009304</id>
+    <title>Mr</title>
+    <name>K L Udara Maduranga Liyanage</name>
+  </student>
+
+  <student>
+    <no>6</no>
+    <id>10009306</id>
+    <title>Mr</title>
+    <name>Hansa Anuradha Wickramanayake</name>
+  </student>
+
+</students>
