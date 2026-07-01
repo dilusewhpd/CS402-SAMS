@@ -4,82 +4,157 @@ import xml.etree.ElementTree as ET
 import sqlite3
 import sys
 import os
+import pytesseract   # pip install pytesseract  |  also needs Tesseract-OCR installed
+                      # (Windows: https://github.com/UB-Mannheim/tesseract/wiki)
+pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 def load_image(image_path):
-    # Load the image from the given path
     img = cv2.imread(image_path)
     if img is None:
         print("ERROR: Image not found! Please check the path.")
         sys.exit(1)
     print(f"Image loaded successfully. Size: {img.shape}")
-    
-    # Resize for display only (original used for processing)
     display = cv2.resize(img, (800, 1000))
     cv2.imshow("Step 1 - Original Image", display)
     cv2.waitKey(0)
     return img
 
 def convert_grayscale(img):
-    # Convert the image to grayscale
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     cv2.imwrite("output_gray.jpg", gray)
-    
-    # Resize for display only
     display = cv2.resize(gray, (800, 1000))
     cv2.imshow("Step 2 - Grayscale Image", display)
     cv2.waitKey(0)
     return gray
 
 def binarize(gray):
-    # Apply Otsu thresholding to convert grayscale to binary image
-    # Black pixels represent ink, white pixels represent background
     _, binary = cv2.threshold(
         gray, 0, 255,
         cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
     )
     cv2.imwrite("output_binary.jpg", binary)
-    
-    # Resize for display only
     display = cv2.resize(binary, (800, 1000))
     cv2.imshow("Step 3 - Binarized Image", display)
     cv2.waitKey(0)
     return binary
 
-def detect_signatures(binary):
-    # Print binary image dimensions for debugging
+def remove_grid_lines(cell):
+    h, w = cell.shape
+    out = cell.copy()
+    lines = cv2.HoughLinesP(cell, 1, np.pi / 180, threshold=int(w * 0.4),
+                             minLineLength=int(w * 0.5), maxLineGap=10)
+    if lines is not None:
+        for l in lines:
+            x1, y1, x2, y2 = l[0]
+            angle = abs(np.degrees(np.arctan2(y2 - y1, x2 - x1)))
+            if angle < 10 or angle > 170:  # keep only near-horizontal lines
+                cv2.line(out, (x1, y1), (x2, y2), 0, thickness=5)
+    return out
+
+def looks_like_ab_mark(cell_no_lines):
+    inv = cv2.bitwise_not(cell_no_lines)  # tesseract expects dark text on light bg
+    inv = cv2.resize(inv, None, fx=4, fy=4, interpolation=cv2.INTER_CUBIC)
+    text = pytesseract.image_to_string(
+        inv, config="--psm 7 -c tessedit_char_whitelist=ab"
+    ).lower()
+    return "ab" in text
+
+
+def detect_signatures(binary, image_path):
     print(f"Binary image shape: {binary.shape}")
 
-    # Define pixel coordinates for each student signature cell
-    # Format: (y_start, y_end, x_start, x_end)
-    signature_cells = [
-        (1600, 1720, 2200, 3000),  # Student 1
-        (1720, 1840, 2200, 3000),  # Student 2
-        (1840, 1960, 2200, 3000),  # Student 3
-        (1960, 2080, 2200, 3000),  # Student 4
-        (2080, 2200, 2200, 3000),  # Student 5
-        (2200, 2320, 2200, 3000),  # Student 6
-    ]
+    coordinates = {
+        "1.jpeg": [
+            (1439, 1568, 2113, 2555),
+            (1673, 1770, 2105, 2555),
+            (1761, 1854, 2097, 2555),
+            (1842, 1943, 2101, 2547),
+            (1935, 2028, 2101, 2547),
+            (2024, 2116, 2097, 2547),
+        ],
+        "2.jpeg": [
+            (1419, 1483, 1965, 2400),
+            (1507, 1564, 1973, 2407),
+            (1588, 1649, 1976, 2407),
+            (1665, 1729, 1973, 2415),
+            (1720, 1820, 1950, 2426),
+            (1820, 1920, 1950, 2426),
+        ],
+        "3.jpeg": [
+            (1528, 1588, 1920, 2343),
+            (1604, 1681, 1920, 2354),
+            (1689, 1761, 1920, 2362),
+            (1766, 1838, 1920, 2358),
+            (1858, 1927, 1924, 2362),
+            (1931, 2016, 1935, 2362),
+        ],
+        "4.jpeg": [
+            (1584, 1669, 1905, 2351),
+            (1673, 1745, 1912, 2358),
+            (1757, 1834, 1908, 2358),
+            (1842, 1923, 1912, 2362),
+            (1923, 1995, 1920, 2358),
+            (2007, 2080, 1924, 2362),
+        ],
+        "5.jpeg": [
+            (1572, 1645, 2060, 2521),
+            (1665, 1733, 2071, 2513),
+            (1745, 1822, 2075, 2525),
+            (1834, 1911, 2071, 2525),
+            (1923, 1999, 2075, 2536),
+            (2007, 2084, 2082, 2540),
+        ],
+    }
 
-    # Save a test cell image for debugging
-    test = binary[1600:1720, 2200:3000]
-    cv2.imwrite("test_cell.jpg", test)
-    print("Test cell image saved as test_cell.jpg")
+    image_name = os.path.basename(image_path)
+    signature_cells = coordinates.get(image_name)
+    if not signature_cells:
+        print(f"ERROR: No coordinates found for {image_name}")
+        sys.exit(1)
 
+    os.makedirs("cells", exist_ok=True)
     results = []
+
     for i, (y1, y2, x1, x2) in enumerate(signature_cells):
-        # Crop the signature cell from the binary image
-        cell = binary[y1:y2, x1:x2]
-        # Count ink (non-zero) pixels in the cell
+        cell = binary[y1 + 10:y2 - 10, x1 + 10:x2 - 10]
+
+        # Step A: strip grid-line contamination
+        cell = remove_grid_lines(cell)
+        cv2.imwrite(f"cells/cell_{i+1}.jpg", cell)
+
+        bridge_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 3))
+        bridged = cv2.dilate(cell, bridge_kernel, iterations=1)
+
         ink_pixels = cv2.countNonZero(cell)
-        # If ink pixels exceed threshold, student is present
-        status = "Present" if ink_pixels > 100 else "Absent"
+        cell_area = cell.shape[0] * cell.shape[1]
+        ink_percentage = (ink_pixels / cell_area) * 100
+
+        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(bridged, connectivity=8)
+        if num_labels > 1:
+            largest_blob = max(stats[j, cv2.CC_STAT_AREA] for j in range(1, num_labels))
+        else:
+            largest_blob = 0
+        significant_blobs = sum(1 for j in range(1, num_labels) if stats[j, cv2.CC_STAT_AREA] > 50)
+
+        print(f"Student {i+1}: ink%={ink_percentage:.2f}%, "
+              f"blobs={significant_blobs}, largest_blob={largest_blob}")
+
+        if largest_blob > 800 and ink_percentage > 2:
+            status = "Present"
+        else:
+            status = "Absent"
+
+        # Step C: explicit "-ab-" text overrides the ink-based guess
+        if looks_like_ab_mark(cell):
+            status = "Absent"
+
         results.append(status)
-        print(f"Student {i+1}: {status} (ink pixels: {ink_pixels})")
+        print(f"Student {i+1}: {status}")
 
     return results
 
+
 def parse_xml(xml_path):
-    # Parse the XML file to extract student information
     tree = ET.parse(xml_path)
     root = tree.getroot()
     students = []
@@ -93,33 +168,27 @@ def parse_xml(xml_path):
     return students
 
 def save_to_db(students, results, date):
-    # Create database directory if it does not exist
     os.makedirs("db", exist_ok=True)
     conn = sqlite3.connect("db/attendance.db")
     cursor = conn.cursor()
-
-    # Create attendance table if it does not exist
     cursor.execute('''CREATE TABLE IF NOT EXISTS attendance (
         student_id TEXT,
         name TEXT,
         date TEXT,
         status TEXT
     )''')
-
-    # Insert attendance records for each student
+    cursor.execute("DELETE FROM attendance WHERE date=?", (date,))
     for i, student in enumerate(students):
         cursor.execute(
             "INSERT INTO attendance VALUES (?, ?, ?, ?)",
             (student["id"], student["name"], date, results[i])
         )
         print(f"Saved: {student['name']} - {results[i]} - {date}")
-
     conn.commit()
     conn.close()
     print("Attendance records saved to database successfully!")
 
 if __name__ == "__main__":
-    # Check command line arguments
     if len(sys.argv) != 3:
         print("Usage: python sams.py <image_path> <date>")
         print("Example: python sams.py data/images/1.jpeg 12-07-2019")
@@ -132,11 +201,10 @@ if __name__ == "__main__":
     print(f"Processing image: {image_path}")
     print(f"Attendance date: {date}")
 
-    # Run all processing steps
     img = load_image(image_path)
     gray = convert_grayscale(img)
     binary = binarize(gray)
-    results = detect_signatures(binary)
+    results = detect_signatures(binary, image_path)
     students = parse_xml(xml_path)
     save_to_db(students, results, date)
 
