@@ -1,0 +1,6 @@
+__pycache__/ 
+*.pyc 
+db/attendance.db 
+cells/ 
+output_gray.jpg 
+output_binary.jpg 
