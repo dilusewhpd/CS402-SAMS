@@ -4,10 +4,10 @@ import xml.etree.ElementTree as ET
 import sqlite3
 import sys
 import os
-import pytesseract   # pip install pytesseract  |  also needs Tesseract-OCR installed
-                      # (Windows: https://github.com/UB-Mannheim/tesseract/wiki)
+import pytesseract   
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
+#load image 
 def load_image(image_path):
     img = cv2.imread(image_path)
     if img is None:
@@ -19,6 +19,7 @@ def load_image(image_path):
     cv2.waitKey(0)
     return img
 
+#convert to grayscale
 def convert_grayscale(img):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     cv2.imwrite("output_gray.jpg", gray)
@@ -27,6 +28,7 @@ def convert_grayscale(img):
     cv2.waitKey(0)
     return gray
 
+#binarize the image
 def binarize(gray):
     _, binary = cv2.threshold(
         gray, 0, 255,
@@ -38,6 +40,7 @@ def binarize(gray):
     cv2.waitKey(0)
     return binary
 
+#remove grid lines from the cell
 def remove_grid_lines(cell):
     h, w = cell.shape
     out = cell.copy()
@@ -47,19 +50,38 @@ def remove_grid_lines(cell):
         for l in lines:
             x1, y1, x2, y2 = l[0]
             angle = abs(np.degrees(np.arctan2(y2 - y1, x2 - x1)))
-            if angle < 10 or angle > 170:  # keep only near-horizontal lines
+            if angle < 10 or angle > 170:
                 cv2.line(out, (x1, y1), (x2, y2), 0, thickness=5)
     return out
 
+#check if the cell contains "ab" mark using OCR
 def looks_like_ab_mark(cell_no_lines):
-    inv = cv2.bitwise_not(cell_no_lines)  # tesseract expects dark text on light bg
+    inv = cv2.bitwise_not(cell_no_lines)
     inv = cv2.resize(inv, None, fx=4, fy=4, interpolation=cv2.INTER_CUBIC)
     text = pytesseract.image_to_string(
         inv, config="--psm 7 -c tessedit_char_whitelist=ab"
     ).lower()
     return "ab" in text
 
+IMAGE_DATES = {
+    "1.jpeg": "31-05-2019",
+    "2.jpeg": "21-06-2019",
+    "3.jpeg": "28-06-2019",
+    "4.jpeg": "05-07-2019",
+    "5.jpeg": "12-07-2019",
+}
 
+#def get_date_for_image(image_path):
+def get_date_for_image(image_path):
+    image_name = os.path.basename(image_path)
+    date = IMAGE_DATES.get(image_name)
+    if not date or date.startswith("TODO"):
+        print(f"ERROR: No date set for {image_name} in IMAGE_DATES. "
+              f"Open the sheet, read the date in the header, and add it to the dict.")
+        sys.exit(1)
+    return date
+
+#detect signatures in the binary image and determine attendance
 def detect_signatures(binary, image_path):
     print(f"Binary image shape: {binary.shape}")
 
@@ -117,8 +139,6 @@ def detect_signatures(binary, image_path):
 
     for i, (y1, y2, x1, x2) in enumerate(signature_cells):
         cell = binary[y1 + 10:y2 - 10, x1 + 10:x2 - 10]
-
-        # Step A: strip grid-line contamination
         cell = remove_grid_lines(cell)
         cv2.imwrite(f"cells/cell_{i+1}.jpg", cell)
 
@@ -144,7 +164,6 @@ def detect_signatures(binary, image_path):
         else:
             status = "Absent"
 
-        # Step C: explicit "-ab-" text overrides the ink-based guess
         if looks_like_ab_mark(cell):
             status = "Absent"
 
@@ -153,7 +172,7 @@ def detect_signatures(binary, image_path):
 
     return results
 
-
+#parse XML file to get student info
 def parse_xml(xml_path):
     tree = ET.parse(xml_path)
     root = tree.getroot()
@@ -167,6 +186,7 @@ def parse_xml(xml_path):
     print(f"Total students loaded from XML: {len(students)}")
     return students
 
+#save attendance results to SQLite database
 def save_to_db(students, results, date):
     os.makedirs("db", exist_ok=True)
     conn = sqlite3.connect("db/attendance.db")
@@ -189,13 +209,16 @@ def save_to_db(students, results, date):
     print("Attendance records saved to database successfully!")
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("Usage: python sams.py <image_path> <date>")
-        print("Example: python sams.py data/images/1.jpeg 12-07-2019")
+    if len(sys.argv) not in (2, 3):
+        print("Usage: python sams.py <image_path> [date]")
+        print("Example: python sams.py data/images/2.jpeg")
+        print("(date is optional - if omitted, it's looked up from IMAGE_DATES)")
         sys.exit(1)
 
     image_path = sys.argv[1]
-    date = sys.argv[2]
+    # CLI date argument still works if you want to override; otherwise it's
+    # looked up automatically from the IMAGE_DATES table above.
+    date = sys.argv[2] if len(sys.argv) == 3 else get_date_for_image(image_path)
     xml_path = "data/info.xml"
 
     print(f"Processing image: {image_path}")
