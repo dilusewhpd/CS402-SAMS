@@ -16,12 +16,14 @@ class ImageProcessor:
         return img
 
     def to_grayscale(self, img):
+        print("Progress: Applying grayscale conversion...")
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         cv2.imwrite("output_gray.jpg", gray)
         self._display("Step 2 - Grayscale Image", gray)
         return gray
 
     def binarize(self, gray):
+        print("Progress: Binarizing image...")
         _, binary = cv2.threshold(
             gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
         )

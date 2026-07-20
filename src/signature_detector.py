@@ -91,7 +91,10 @@ class SignatureDetector:
         "ab" as "ak" (b/k look similar in cursive at this size)."""
         inv = cv2.bitwise_not(cell)
         inv = cv2.resize(inv, None, fx=4, fy=4, interpolation=cv2.INTER_CUBIC)
-        text = pytesseract.image_to_string(
-            inv, config="--psm 7 -c tessedit_char_whitelist=ab"
-        ).lower()
-        return "ab" in text
+        try:
+            text = pytesseract.image_to_string(
+                inv, config="--psm 7 -c tessedit_char_whitelist=ab"
+            ).lower()
+            return "ab" in text
+        except pytesseract.pytesseract.TesseractNotFoundError:
+            return False

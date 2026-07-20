@@ -44,58 +44,61 @@ class SignatureInvestigator:
                         student = students[row_index]
                     else:
                         print(f"Student ID not found: {student_id}")
-                        return
-                except ValueError:
-                    print(f"Student ID not found: {student_id}")
-                    return
+        self.student_repo = student_repo
+        self.image_proc = ImageProcessor(show_steps=False)
+
+    def investigate(self, student_id: str):
+        # 1. Fetch only "Present" records for the student
+        records = self.database.get_records_for_student(student_id)
+        present_dates = [r[0] for r in records if r[1] == "Present"]
+
+        if not present_dates:
+            print(f"No present attendance records found for student {student_id}.")
+            return
+
+        print(f"Found {len(present_dates)} 'Present' records. Extracting signatures...")
+        
+        # 2. Extract signatures from the images on those dates
+        signatures = []
+        students = self.student_repo.load_students()
+        
+        # Find which row corresponds to this student
+        row_index = next((i for i, s in enumerate(students) if s.student_id == student_id), -1)
+        if row_index == -1:
+            print("Student not found in XML.")
+            return
+
+        # Scan all images in data/images/
+        image_files = glob.glob(os.path.join(config.IMAGE_DIR, "*.jpeg")) + \
+                      glob.glob(os.path.join(config.IMAGE_DIR, "*.png"))
+                      
+        for image_path in image_files:
+            image_name = os.path.basename(image_path)
+            
+            # Try to parse date from filename first, then config
+            match = re.search(r"(\d{2}\.\d{2}\.\d{4})", image_name)
+            if match:
+                image_date = match.group(1).replace(".", "-")
             else:
-                row_index = students.index(student)
-            rows = self.database.get_records_for_student(student_id)
-            present_dates = sorted(
-                {row[0] for row in rows if str(row[1]).strip().lower() == "present"}
-            )
-
-            if not present_dates:
-                print(f"No present attendance records found for student {student_id}.")
-                return
-
-            samples: List[Tuple[str, str, np.ndarray]] = []
-            for image_name, boxes in config.CELL_COORDINATES.items():
                 image_date = config.IMAGE_DATES.get(image_name)
-                if image_date not in present_dates:
-                    continue
 
-                image_path = os.path.join(IMAGES_DIR, image_name)
-                if not os.path.exists(image_path):
-                    print(f"Skipping missing image: {image_path}")
+            if image_date in present_dates:
+                # Run image processing to get binary
+                binary = self.image_proc.process(image_path)
+                
+                # Fetch hardcoded box for this image
+                coords = config.CELL_COORDINATES.get(image_name)
+                if not coords or row_index >= len(coords):
+                    print(f"Skipping {image_date}: no coordinates configured for {image_name}")
                     continue
-
-                image = cv2.imread(image_path)
-                if image is None:
-                    print(f"Skipping unreadable image: {image_path}")
-                    continue
-
-                if row_index >= len(boxes):
-                    print(f"No crop box for student row {row_index + 1} in {image_name}")
-                    continue
-
-                # Reuse the same signature-cell crop region used by the attendance pipeline.
-                y1, y2, x1, x2 = boxes[row_index]
-                crop = image[y1 + 10:y2 - 10, x1 + 10:x2 - 10]
+                    
+                y1, y2, x1, x2 = coords[row_index]
+                crop = binary[y1:y2, x1:x2]
+                
                 processed = self._prepare_signature(crop)
                 if np.count_nonzero(processed) < 50:
                     print(f"Skipping {image_date}: signature not detected in {image_name}")
                     continue
-                samples.append((image_date, image_name, processed))
-
-            if len(samples) < 2:
-                print(
-                    "Not enough signature samples found for comparison. "
-                    "At least two present sheets are required."
-                )
-                return
-
-            self._save_debug_samples(student_id, samples)
             self._report_similarity(student.name, student_id, samples)
         except Exception as exc:  # pragma: no cover - defensive reporting for the report
             print(f"Investigation failed: {exc}")
