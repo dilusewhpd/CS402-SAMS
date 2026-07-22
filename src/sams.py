@@ -47,7 +47,20 @@ class AttendanceSystem:
         cv2.destroyAllWindows()
         print("Program completed successfully!")
 
-    
+    @staticmethod
+    def _resolve_date(image_name: str) -> str:
+        # Try to parse date from filename (e.g. 10.07.2019.png)
+        match = re.search(r"(\d{2}\.\d{2}\.\d{4})", image_name)
+        if match:
+            return match.group(1).replace(".", "-")
+
+        # Fallback to config mapping
+        date = config.IMAGE_DATES.get(image_name)
+        if not date or date.startswith("TODO"):
+            print(f"ERROR: No date set for {image_name} in config.IMAGE_DATES and not found in filename. "
+                  f"Open the sheet, read the date in the header, and add it there.")
+            sys.exit(1)
+        return date
 
 
 def main():
