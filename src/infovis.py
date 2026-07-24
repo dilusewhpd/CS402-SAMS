@@ -29,3 +29,36 @@ class AttendanceVisualizer:
         dates = [r[0] for r in rows_sorted]
         statuses = [1 if r[1] == "Present" else 0 for r in rows_sorted]
         colors = ["green" if s else "red" for s in statuses]
+        present_count = sum(statuses)
+        total = len(statuses)
+        pct = present_count / total * 100
+
+        plt.figure(figsize=(10, 6))
+        plt.bar(dates, statuses, color=colors)
+        plt.title(f"Attendance History - {student_name} ({student_id})\n"
+                  f"Present {present_count}/{total} ({pct:.0f}%)")
+        plt.xlabel("Date")
+        plt.ylabel("Status")
+        plt.xticks(rotation=45)
+        plt.yticks([0, 1], ["Absent", "Present"])
+        plt.tight_layout()
+        plt.savefig("attendance_chart.png")
+        plt.show()
+
+        print(f"Present: {present_count}/{total} ({pct:.0f}%)")
+        print("Chart saved as attendance_chart.png")
+
+
+def main():
+    if len(sys.argv) != 2:
+        print("Usage: python infovis.py <student_id>")
+        print("Example: python infovis.py 10000409")
+        sys.exit(1)
+
+    student_id = sys.argv[1]
+    database = AttendanceDatabase(config.DB_PATH)
+    AttendanceVisualizer(database).show(student_id)
+
+
+if _name_ == "_main_":
+    main()
