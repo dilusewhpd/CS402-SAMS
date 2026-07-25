@@ -28,8 +28,7 @@ class SignatureInvestigator:
 
             students = self.repository.load_students()
             row_index = next((i for i, s in enumerate(students) if s.student_id == student_id), -1)
-            if row_index == -1: return
-
+            
             samples: List[Tuple[str, str, np.ndarray]] = []
             image_files = glob.glob(os.path.join(config.IMAGE_DIR, "*.jpeg")) + glob.glob(os.path.join(config.IMAGE_DIR, "*.png"))
 
@@ -46,12 +45,36 @@ class SignatureInvestigator:
                     y1, y2, x1, x2 = coords[row_index]
                     crop = binary[y1:y2, x1:x2]
                     
-                    # Placeholder for preprocessing
-                    samples.append((image_date, image_name, crop))
+                    processed = self._prepare_signature(crop)
+                    if np.count_nonzero(processed) >= 50:
+                        samples.append((image_date, image_name, processed))
             
-            print(f"Extracted {len(samples)} signature crops.")
+            print(f"Preprocessed {len(samples)} valid signatures.")
         except Exception as exc:
             print(f"Investigation failed: {exc}")
+
+    def _prepare_signature(self, crop: np.ndarray) -> np.ndarray:
+        TARGET_W, TARGET_H = 300, 150
+        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if len(crop.shape) == 3 else crop
+        _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        cleaned = cv2.morphologyEx(cv2.bitwise_not(binary), cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)), iterations=1)
+        
+        coords = cv2.findNonZero(cleaned)
+        if coords is None: return np.zeros((TARGET_H, TARGET_W), dtype=np.uint8)
+        
+        x, y, w, h = cv2.boundingRect(coords)
+        tight = cleaned[y : y + h, x : x + w]
+        canvas = np.zeros((TARGET_H, TARGET_W), dtype=np.uint8)
+        
+        if w > TARGET_W or h > TARGET_H:
+            scale = min(TARGET_W / float(w), TARGET_H / float(h))
+            new_w, new_h = max(1, int(w * scale)), max(1, int(h * scale))
+            tight = cv2.resize(tight, (new_w, new_h), interpolation=cv2.INTER_AREA)
+            w, h = new_w, new_h
+
+        x_off, y_off = (TARGET_W - w) // 2, (TARGET_H - h) // 2
+        canvas[y_off : y_off + h, x_off : x_off + w] = tight
+        return cv2.GaussianBlur(canvas, (3, 3), 0)
 
 def main() -> None:
     if len(sys.argv) != 2: sys.exit(1)
