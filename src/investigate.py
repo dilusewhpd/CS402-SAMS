@@ -15,7 +15,7 @@ from student_repository import StudentRepository
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 class SignatureInvestigator:
-    SIMILARITY_THRESHOLD = 0.60 # Hardcoded cutoff
+    SIMILARITY_THRESHOLD = 0.60
 
     def __init__(self, repository: StudentRepository, database: AttendanceDatabase):
         self.repository = repository
@@ -73,18 +73,36 @@ class SignatureInvestigator:
         return cv2.GaussianBlur(canvas, (3, 3), 0)
 
     def _report_similarity(self, student_name: str, student_id: str, samples: List[Tuple[str, str, np.ndarray]]) -> None:
-        print(f"Comparing {len(samples)} signature samples for {student_name}")
+        print(f"Comparing {len(samples)} signature samples for {student_name} ({student_id})")
+        print("\nDate | Similarity vs. reference | Status\n" + "-" * 50)
         reference_date, _, reference_sig = samples[0]
         for date, _, sample_sig in samples:
             score = self._similarity(reference_sig, sample_sig)
             if date == reference_date:
-                print(f"{date} | reference")
+                print(f"{date:<15} | {'1.000':>8} | reference")
             else:
                 status = "match" if score >= self.SIMILARITY_THRESHOLD else "mismatch"
-                print(f"{date} | {score:.3f} | {status}")
+                print(f"{date:<15} | {score:>8.3f} | {status}")
 
     def _similarity(self, sig_a: np.ndarray, sig_b: np.ndarray) -> float:
-        return 0.85 # Dummy return for testing
+        target_h, target_w = 150, 300
+        if sig_a.shape != (target_h, target_w): sig_a = cv2.resize(sig_a, (target_w, target_h))
+        if sig_b.shape != (target_h, target_w): sig_b = cv2.resize(sig_b, (target_w, target_h))
+        if sig_a.size == 0 or sig_b.size == 0: return 0.0
+
+        img1, img2 = cv2.GaussianBlur(sig_a.astype(np.float64), (3, 3), 0), cv2.GaussianBlur(sig_b.astype(np.float64), (3, 3), 0)
+        C1, C2 = (0.01 * 255) ** 2, (0.03 * 255) ** 2
+        kernel_size, sigma = (11, 11), 1.5
+
+        mu1, mu2 = cv2.GaussianBlur(img1, kernel_size, sigma), cv2.GaussianBlur(img2, kernel_size, sigma)
+        mu1_sq, mu2_sq, mu1_mu2 = mu1 * mu1, mu2 * mu2, mu1 * mu2
+
+        sigma1_sq = cv2.GaussianBlur(img1 * img1, kernel_size, sigma) - mu1_sq
+        sigma2_sq = cv2.GaussianBlur(img2 * img2, kernel_size, sigma) - mu2_sq
+        sigma12 = cv2.GaussianBlur(img1 * img2, kernel_size, sigma) - mu1_mu2
+
+        denom = np.where((mu1_sq + mu2_sq + C1) * (sigma1_sq + sigma2_sq + C2) == 0, 1e-9, (mu1_sq + mu2_sq + C1) * (sigma1_sq + sigma2_sq + C2))
+        return max(0.0, min(1.0, float(np.mean(((2 * mu1_mu2 + C1) * (2 * sigma12 + C2)) / denom))))
 
 def main() -> None:
     if len(sys.argv) != 2: sys.exit(1)
