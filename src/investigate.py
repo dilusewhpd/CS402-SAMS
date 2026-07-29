@@ -74,14 +74,29 @@ class SignatureInvestigator:
 
     def _report_similarity(self, student_name: str, student_id: str, samples: List[Tuple[str, str, np.ndarray]]) -> None:
         print(f"Comparing {len(samples)} signature samples for {student_name} ({student_id})")
-        print("\nDate | Similarity vs. reference | Status\n" + "-" * 50)
+        print("\nDate | Similarity vs. first/reference signature | Status\n" + "-" * 70)
+
         reference_date, _, reference_sig = samples[0]
+        scores: List[float] = []
+        summary_rows: List[Tuple[str, float, str]] = []
+
         for date, _, sample_sig in samples:
             score = self._similarity(reference_sig, sample_sig)
+            scores.append(score)
+            summary_rows.append((date, score, "unknown"))
+
+        nonref_scores = [s for i, s in enumerate(scores) if i != 0]
+        if len(nonref_scores) >= 2:
+            mean, std = float(np.mean(nonref_scores)), float(np.std(nonref_scores))
+            dynamic_cutoff = max(0.0, mean - 1.0 * std)
+        else:
+            mean, std, dynamic_cutoff = 0.0, 0.0, self.SIMILARITY_THRESHOLD
+
+        for date, score, _ in summary_rows:
             if date == reference_date:
                 print(f"{date:<15} | {'1.000':>8} | reference")
             else:
-                status = "match" if score >= self.SIMILARITY_THRESHOLD else "mismatch"
+                status = "match" if score >= dynamic_cutoff else "mismatch"
                 print(f"{date:<15} | {score:>8.3f} | {status}")
 
     def _similarity(self, sig_a: np.ndarray, sig_b: np.ndarray) -> float:
