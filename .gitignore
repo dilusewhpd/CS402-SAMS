@@ -4,3 +4,6 @@ db/attendance.db
 cells/ 
 output_gray.jpg 
 output_binary.jpg 
+attendance_chart.png 
+investigate_*.png 
+binarize/
